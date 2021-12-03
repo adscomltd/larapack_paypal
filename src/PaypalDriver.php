@@ -1,0 +1,201 @@
+<?php
+
+namespace Adscom\LarapackPaypal;
+
+use App\Models\OrderItem;
+use App\Models\Payment;
+use App\Models\PaymentAccount;
+use Arr;
+use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
+use Adscom\LarapackPaypal\Webhook\PaypalWebhookHandler;
+use Adscom\LarapackPaymentManager\PaymentResponse;
+use Exception;
+use JsonException;
+use PayPalCheckoutSdk\Core\PayPalHttpClient;
+use PayPalCheckoutSdk\Core\ProductionEnvironment;
+use PayPalCheckoutSdk\Core\SandboxEnvironment;
+use PayPalCheckoutSdk\Orders\OrdersCreateRequest;
+use PayPalHttp\HttpException;
+use PayPalHttp\HttpResponse;
+use Str;
+
+class PaypalDriver extends PaymentDriver
+{
+  /**
+   * API statuses on create payment intent
+   */
+  public const STATUS_CREATED = 'CREATED';
+
+  protected PaypalWebhookHandler $webhookHandler;
+  protected PaypalFinalizeHandler $finalizeHandler;
+
+  public PayPalHttpClient $client;
+
+  public function __construct()
+  {
+    parent::__construct();
+    $this->webhookHandler = new PaypalWebhookHandler($this);
+    $this->finalizeHandler = new PayPalFinalizeHandler($this);
+  }
+
+  public function setup(PaymentAccount $paymentAccount): void
+  {
+    parent::setup($paymentAccount);
+
+    $clientId = $this->config['client_id'];
+    $clientSecret = $this->config['secret'];
+
+    if (app()->isLocal()) {
+      $environment = new SandboxEnvironment($clientId, $clientSecret);
+    } else {
+      $environment = new ProductionEnvironment($clientId, $clientSecret);
+    }
+
+    $this->client = new PayPalHttpClient($environment);
+  }
+
+  public function processPayment(array $data = []): void
+  {
+    $request = new OrdersCreateRequest();
+    $request->prefer('return=representation');
+//    $request->headers['PayPal-Mock-Response'] = '{"mock_application_codes": "PAYEE_ACCOUNT_INVALID"}';
+    $request->body = $this->prepareData($data);
+
+    $response = $this->client->execute($request);
+
+    $this->handleResponse($response);
+    $status = $this->getPaymentStatus($response->result->status);
+    $this->paymentResponse->setPaidAmount($response->result->purchase_units[0]->amount->value);
+    $this->paymentResponse->setStatus($status);
+  }
+
+  protected function getPaymentStatus(string $status): int
+  {
+    // TODO: add other cases
+    return match ($status) {
+      self::STATUS_CREATED => Payment::STATUS_CREATED,
+      default => Payment::STATUS_ERROR,
+    };
+  }
+
+  protected function prepareData(array $data): array
+  {
+    return [
+      'intent' => 'AUTHORIZE',
+      'application_context' =>
+        [
+          'cancel_url' => $this->getFinalizeUrl(['status' => PaypalFinalizeHandler::STATUS_CANCELLED]),
+          'return_url' => $this->getFinalizeUrl(['status' => PaypalFinalizeHandler::STATUS_SUCCEEDED]),
+          'shipping_preference' => 'SET_PROVIDED_ADDRESS',
+        ],
+      'purchase_units' =>
+        [
+          [
+            'reference_id' => $this->order->uuid,
+            //TODO: change description
+            'description' => 'M4trix Market',
+            'custom_id' => $this->payment->uuid,
+            'amount' =>
+              [
+                'currency_code' => $this->order->processor_currency,
+                'value' => $this->order->due_amount,
+                'breakdown' =>
+                  [
+                    'item_total' =>
+                      [
+                        'currency_code' => $this->order->processor_currency,
+                        'value' => $this->order->due_amount_without_shipping,
+                      ],
+                    'shipping' =>
+                      [
+                        'currency_code' => $this->order->processor_currency,
+                        'value' => rounded($this->order->due_amount - $this->order->due_amount_without_shipping),
+                      ],
+                  ],
+              ],
+            'items' => $this->order->lineItems->map(
+              fn(OrderItem $item) => [
+                'name' => $item->product->name,
+                'description' => $item->product->name,
+                'sku' => $item->product->item_no,
+                'unit_amount' =>
+                  [
+                    'currency_code' => $this->order->processor_currency,
+                    'value' => $item->price,
+                  ],
+                'quantity' => $item->qty,
+                'category' => 'PHYSICAL_GOODS',
+              ])->toArray(),
+            'shipping' =>
+              [
+                'method' => $this->order->shipping_data['method_name'],
+                'address' =>
+                  [
+                    'address_line_1' => $this->order->shippingAddress->address_line_1,
+                    'address_line_2' => $this->order->shippingAddress->address_line_2,
+                    'admin_area_2' => $this->order->shippingAddress->city,
+                    'admin_area_1' => $this->order->shippingAddress->state,
+                    'postal_code' => $this->order->shippingAddress->country->zip_code,
+                    'country_code' => $this->order->shippingAddress->country->iso,
+                  ],
+              ],
+          ],
+        ],
+    ];
+  }
+
+  /**
+   * @throws JsonException
+   */
+  public function handleResponse($response): PaymentResponse
+  {
+    /** @var HttpResponse $paypalResponse */
+    $paypalResponse = $response;
+
+    $this->paymentResponse->setResponse(
+      json_decode(json_encode($paypalResponse->result, JSON_THROW_ON_ERROR),
+        true, 512, JSON_THROW_ON_ERROR)
+    );
+    $this->paymentResponse->setProcessorCurrency($paypalResponse->result->purchase_units[0]->amount->currency_code);
+    $this->paymentResponse->setProcessorStatus($paypalResponse->result->status);
+    $this->paymentResponse->setProcessorTransactionId($paypalResponse->result->id);
+    $this->paymentResponse->setPaymentTokenId(null);
+
+    return $this->paymentResponse;
+  }
+
+  /**
+   * @throws JsonException
+   */
+  public function handleException(Exception $e): void
+  {
+    if ($e instanceof HttpException) {
+      $oldUuid = $this->paymentResponse->getUuid();
+      $this->paymentResponse = $this->getPaymentResponseFromHttpException($e);
+      $this->paymentResponse->setUuid($oldUuid);
+    } else {
+      parent::handleException($e);
+    }
+  }
+
+  /**
+   * @throws JsonException
+   */
+  public function getPaymentResponseFromHttpException(HttpException $e): PaymentResponse
+  {
+    $paymentResponse = new PaymentResponse();
+    $body = json_decode($e->getMessage(), true, 512, JSON_THROW_ON_ERROR);
+
+    $paymentResponse->setUuid(Str::uuid()->toString());
+    $paymentResponse->setResponse($body);
+    $paymentResponse->setProcessorCurrency($this->order->processor_currency);
+    $paymentResponse->setProcessorStatus($body['name']);
+    $paymentResponse->setReason(Arr::get($body, 'details.0.issue'));
+    $paymentResponse->setNotes($body['details']);
+    $paymentResponse->setProcessorTransactionId(null);
+    $paymentResponse->setPaymentTokenId(null);
+    $paymentResponse->setStatus(Payment::STATUS_ERROR);
+
+    return $paymentResponse;
+  }
+}

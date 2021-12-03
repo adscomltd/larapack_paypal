@@ -1,0 +1,44 @@
+{
+  "name": "adscomltd/larapack_paypal",
+  "description": "Adds price manager support",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Armen Matevosyan",
+      "email": "aamatevosyan@edu.hse.ru",
+      "homepage": "https://hyperstech.com"
+    }
+  ],
+  "homepage": "https://github.com/adscomltd/larapack_paypal",
+  "keywords": [
+    "Laravel",
+    "LarapackPaypal"
+  ],
+  "require": {
+    "illuminate/support": "~7|~8",
+    "adscomltd/larapack_payment_manager": "^0.0",
+    "paypal/paypal-checkout-sdk": "1.0.1"
+  },
+  "require-dev": {
+    "roave/security-advisories": "dev-latest",
+    "phpunit/phpunit": "~9.0",
+    "orchestra/testbench": "~5|~6"
+  },
+  "autoload": {
+    "psr-4": {
+      "Adscom\\LarapackPaypal\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Adscom\\LarapackPaypal\\Tests\\": "tests"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Adscom\\LarapackPaypal\\LarapackPaypalServiceProvider"
+      ]
+    }
+  }
+}
