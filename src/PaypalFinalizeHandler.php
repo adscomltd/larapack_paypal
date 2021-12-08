@@ -2,7 +2,7 @@
 
 namespace Adscom\LarapackPaypal;
 
-use App\Models\Payment;
+use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
 use Adscom\LarapackPaymentManager\Interfaces\IFinalizeHandler;
 use Adscom\LarapackPaymentManager\PaymentResponse;
 use Illuminate\Support\Str;
@@ -64,10 +64,10 @@ class PaypalFinalizeHandler implements IFinalizeHandler
   protected function handleApprovedStatus(array $data): array
   {
     try {
-      $authId = $this->authorizeOrder($this->driver->payment->processor_transaction_id);
+      $authId = $this->authorizeOrder($this->driver->payment->getProcessorTransactionId());
       $paymentResponse = $this->captureAuthorization($authId);
     } catch (HttpException $e) {
-      $paymentResponse = $this->getPaymentResponseFromHttpException($e);
+      $paymentResponse = $this->driver->getPaymentResponseFromHttpException($e);
       $this->driver->createPaymentFromResponse($paymentResponse);
     }
 
@@ -88,7 +88,9 @@ class PaypalFinalizeHandler implements IFinalizeHandler
     $paymentResponse->setPaidAmount($response->result->purchase_units[0]->amount->value);
     $paymentResponse->setProcessorTransactionId($response->result->purchase_units[0]->payments->authorizations[0]->id);
 
-    $status = $response->result->status === 'COMPLETED' ? Payment::STATUS_INITIATED : Payment::STATUS_ERROR;
+    $status = $response->result->status === 'COMPLETED'
+      ? PaymentDriver::getPaymentContractClass()::getInitiatedStatus()
+      : PaymentDriver::getPaymentContractClass()::getErrorStatus();
     $paymentResponse->setStatus($status);
 
     $this->driver->createPaymentFromResponse($paymentResponse);
@@ -110,7 +112,9 @@ class PaypalFinalizeHandler implements IFinalizeHandler
     $paymentResponse = $this->getPaymentResponse($response);
     $paymentResponse->setPaidAmount($response->result->amount->value);
 
-    $status = $response->result->status === 'COMPLETED' ? Payment::STATUS_PAID : Payment::STATUS_ERROR;
+    $status = $response->result->status === 'COMPLETED'
+      ? PaymentDriver::getPaymentContractClass()::getPaidStatus()
+      : PaymentDriver::getPaymentContractClass()::getErrorStatus();
     $paymentResponse->setStatus($status);
 
     $this->driver->createPaymentFromResponse($paymentResponse);
@@ -130,7 +134,7 @@ class PaypalFinalizeHandler implements IFinalizeHandler
       json_decode(json_encode($paypalResponse->result, JSON_THROW_ON_ERROR),
         true, 512, JSON_THROW_ON_ERROR)
     );
-    $paymentResponse->setProcessorCurrency($this->driver->order->processor_currency);
+    $paymentResponse->setProcessorCurrency($this->driver->order->getProcessorCurrency());
     $paymentResponse->setProcessorStatus($paypalResponse->result->status);
     $paymentResponse->setProcessorTransactionId($paypalResponse->result->id);
     $paymentResponse->setPaymentTokenId(null);

@@ -2,9 +2,8 @@
 
 namespace Adscom\LarapackPaypal;
 
-use App\Models\OrderItem;
-use App\Models\Payment;
-use App\Models\PaymentAccount;
+use Adscom\LarapackPaymentManager\Contracts\OrderItem;
+use Adscom\LarapackPaymentManager\Contracts\PaymentAccount;
 use Arr;
 use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
 use Adscom\LarapackPaypal\Webhook\PaypalWebhookHandler;
@@ -73,8 +72,8 @@ class PaypalDriver extends PaymentDriver
   {
     // TODO: add other cases
     return match ($status) {
-      self::STATUS_CREATED => Payment::STATUS_CREATED,
-      default => Payment::STATUS_ERROR,
+      self::STATUS_CREATED => self::getPaymentContractClass()::getCreatedStatus(),
+      default => self::getPaymentContractClass()::getErrorStatus(),
     };
   }
 
@@ -91,52 +90,52 @@ class PaypalDriver extends PaymentDriver
       'purchase_units' =>
         [
           [
-            'reference_id' => $this->order->uuid,
+            'reference_id' => $this->order->getUuid(),
             //TODO: change description
             'description' => 'M4trix Market',
-            'custom_id' => $this->payment->uuid,
+            'custom_id' => $this->paymentResponse->getUuid(),
             'amount' =>
               [
-                'currency_code' => $this->order->processor_currency,
-                'value' => $this->order->due_amount,
+                'currency_code' => $this->order->getProcessorCurrency(),
+                'value' => $this->order->getDueAmount(),
                 'breakdown' =>
                   [
                     'item_total' =>
                       [
-                        'currency_code' => $this->order->processor_currency,
-                        'value' => $this->order->due_amount_without_shipping,
+                        'currency_code' => $this->order->getProcessorCurrency(),
+                        'value' => $this->order->getDueAmountWithoutShipping(),
                       ],
                     'shipping' =>
                       [
-                        'currency_code' => $this->order->processor_currency,
-                        'value' => rounded($this->order->due_amount - $this->order->due_amount_without_shipping),
+                        'currency_code' => $this->order->getProcessorCurrency(),
+                        'value' => $this->order->getShippingCost(),
                       ],
                   ],
               ],
-            'items' => $this->order->lineItems->map(
+            'items' => $this->order->getLineItems()->map(
               fn(OrderItem $item) => [
-                'name' => $item->product->name,
-                'description' => $item->product->name,
-                'sku' => $item->product->item_no,
+                'name' => $item->getName(),
+                'description' => $item->getName(),
+                'sku' => $item->getSKU(),
                 'unit_amount' =>
                   [
-                    'currency_code' => $this->order->processor_currency,
-                    'value' => $item->price,
+                    'currency_code' => $this->order->getProcessorCurrency(),
+                    'value' => $item->getPrice(),
                   ],
-                'quantity' => $item->qty,
+                'quantity' => $item->getQuantity(),
                 'category' => 'PHYSICAL_GOODS',
               ])->toArray(),
             'shipping' =>
               [
-                'method' => $this->order->shipping_data['method_name'],
+                'method' => $this->order->getShippingName(),
                 'address' =>
                   [
-                    'address_line_1' => $this->order->shippingAddress->address_line_1,
-                    'address_line_2' => $this->order->shippingAddress->address_line_2,
-                    'admin_area_2' => $this->order->shippingAddress->city,
-                    'admin_area_1' => $this->order->shippingAddress->state,
-                    'postal_code' => $this->order->shippingAddress->country->zip_code,
-                    'country_code' => $this->order->shippingAddress->country->iso,
+                    'address_line_1' => $this->order->getAddress()->getAddressLine1(),
+                    'address_line_2' => $this->order->getAddress()->getAddressLine2(),
+                    'admin_area_2' => $this->order->getAddress()->getCity(),
+                    'admin_area_1' => $this->order->getAddress()->getState(),
+                    'postal_code' => $this->order->getAddress()->getZipCode(),
+                    'country_code' => $this->order->getAddress()->getCountryISO(),
                   ],
               ],
           ],
@@ -188,13 +187,13 @@ class PaypalDriver extends PaymentDriver
 
     $paymentResponse->setUuid(Str::uuid()->toString());
     $paymentResponse->setResponse($body);
-    $paymentResponse->setProcessorCurrency($this->order->processor_currency);
+    $paymentResponse->setProcessorCurrency($this->order->getProcessorCurrency());
     $paymentResponse->setProcessorStatus($body['name']);
     $paymentResponse->setReason(Arr::get($body, 'details.0.issue'));
     $paymentResponse->setNotes($body['details']);
     $paymentResponse->setProcessorTransactionId(null);
     $paymentResponse->setPaymentTokenId(null);
-    $paymentResponse->setStatus(Payment::STATUS_ERROR);
+    $paymentResponse->setStatus(self::getPaymentContractClass()::getErrorStatus());
 
     return $paymentResponse;
   }

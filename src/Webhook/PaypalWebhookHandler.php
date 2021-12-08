@@ -2,11 +2,12 @@
 
 namespace Adscom\LarapackPaypal\Webhook;
 
-use App\Models\Payment;
+use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
 use Arr;
 use Adscom\LarapackPaypal\PaypalDriver;
 use Adscom\LarapackPaypal\Webhook\Handlers\AbstractPaypalWebhookEventHandler;
 use Adscom\LarapackPaymentManager\Interfaces\IWebhookHandler;
+use Adscom\LarapackPaymentManager\Contracts\Payment;
 
 class PaypalWebhookHandler implements IWebhookHandler
 {
@@ -31,8 +32,7 @@ class PaypalWebhookHandler implements IWebhookHandler
   {
     if ($uuid = Arr::get($data, 'resource.custom_id',
       Arr::get($data, 'resource.disputed_transactions.0.custom'))) {
-      return Payment::where('uuid', $uuid)
-        ->firstOrFail();
+      return PaymentDriver::getPaymentContractClass()::findByUuid($uuid);
     }
 
     abort(404, "Can't fetch payment from webhook");

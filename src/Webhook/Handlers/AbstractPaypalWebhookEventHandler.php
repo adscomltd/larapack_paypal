@@ -44,7 +44,7 @@ abstract class AbstractPaypalWebhookEventHandler
   {
     $this->paymentResponse->setIsWebHookPayment(true);
     $this->paymentResponse->setResponse($this->data);
-    $this->paymentResponse->setProcessorCurrency($this->driver->payment->processor_currency);
+    $this->paymentResponse->setProcessorCurrency($this->driver->payment->getProcessorCurrency());
     $this->paymentResponse->setProcessorStatus($this->resource['status']);
     $this->paymentResponse->setProcessorTransactionId($this->getProcessorTransactionId());
     $this->paymentResponse->setPaymentTokenId(null);

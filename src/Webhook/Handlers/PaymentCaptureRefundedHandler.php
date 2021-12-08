@@ -2,7 +2,7 @@
 
 namespace Adscom\LarapackPaypal\Webhook\Handlers;
 
-use App\Models\Payment;
+use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
 use Adscom\LarapackPaymentManager\PaymentResponse;
 use Illuminate\Support\Arr;
 
@@ -15,9 +15,9 @@ class PaymentCaptureRefundedHandler extends AbstractPaypalWebhookEventHandler
 
     $this->paymentResponse->setPaidAmount($refundedAmount);
 
-    $status = ($refundedAmount === $this->driver->payment->order->due_amount)
-      ? Payment::STATUS_REFUND
-      : Payment::STATUS_PARTIAL_REFUND;
+    $status = ($refundedAmount === $this->driver->payment->getOrder()->getDueAmount())
+      ? PaymentDriver::getPaymentContractClass()::getRefundStatus()
+      : PaymentDriver::getPaymentContractClass()::getPartialRefundStatus();
     $this->paymentResponse->setStatus($status);
 
     return $this->paymentResponse;

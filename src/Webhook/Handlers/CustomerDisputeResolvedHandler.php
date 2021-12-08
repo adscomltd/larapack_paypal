@@ -2,7 +2,7 @@
 
 namespace Adscom\LarapackPaypal\Webhook\Handlers;
 
-use App\Models\Payment;
+use Adscom\LarapackPaymentManager\Drivers\PaymentDriver;
 use Arr;
 use Adscom\LarapackPaymentManager\PaymentResponse;
 
@@ -19,7 +19,7 @@ class CustomerDisputeResolvedHandler extends AbstractPaypalWebhookEventHandler
     }
 
     $this->paymentResponse->setPaidAmount($disputeAmount);
-    $this->paymentResponse->setStatus(Payment::STATUS_CHARGEBACK);
+    $this->paymentResponse->setStatus(PaymentDriver::getPaymentContractClass()::getChargebackStatus());
 
     return $this->paymentResponse;
   }
