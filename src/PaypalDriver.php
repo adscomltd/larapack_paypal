@@ -79,7 +79,7 @@ class PaypalDriver extends PaymentDriver
 
   protected function prepareData(array $data): array
   {
-    return [
+    $preparedData = [
       'intent' => 'AUTHORIZE',
       'application_context' =>
         [
@@ -105,11 +105,6 @@ class PaypalDriver extends PaymentDriver
                         'currency_code' => $this->order->getProcessorCurrency(),
                         'value' => $this->order->getDueAmountWithoutShipping(),
                       ],
-                    'shipping' =>
-                      [
-                        'currency_code' => $this->order->getProcessorCurrency(),
-                        'value' => $this->order->getShippingCost(),
-                      ],
                   ],
               ],
             'items' => $this->order->getLineItems()->map(
@@ -127,7 +122,6 @@ class PaypalDriver extends PaymentDriver
               ])->toArray(),
             'shipping' =>
               [
-                'method' => $this->order->getShippingName(),
                 'address' =>
                   [
                     'address_line_1' => $this->order->getAddress()->getAddressLine1(),
@@ -141,6 +135,16 @@ class PaypalDriver extends PaymentDriver
           ],
         ],
     ];
+
+    if ($this->order->hasShippingData()) {
+      Arr::set($preparedData, 'purchase_units.0.shipping.method', $this->order->getShippingName());
+      Arr::set($preparedData, 'purchase_units.0.amount.breakdown.shipping', [
+        'currency_code' => $this->order->getProcessorCurrency(),
+        'value' => $this->order->getShippingCost(),
+      ]);
+    }
+
+    return $preparedData;
   }
 
   /**
