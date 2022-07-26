@@ -17,6 +17,7 @@ use PayPalCheckoutSdk\Orders\OrdersCreateRequest;
 use PayPalHttp\HttpException;
 use PayPalHttp\HttpResponse;
 use Str;
+use \Adscom\LarapackPaypal\PaypalFinalizeHandler;
 
 class PaypalDriver extends PaymentDriver
 {
